@@ -1,0 +1,8 @@
+{
+  "name": "vsrm",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "sqlite3"
+  ],
+  "builtin-baseline": "c05aa0b93924e82a45bb7d1a1c48258fdc280da5"
+}
