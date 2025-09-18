@@ -29,6 +29,7 @@ include(FetchContent)
 set(VSRM_RESOURCES
     resources/sql/schema.sql
     resources/images/logo.png
+    resources/images/login_bg2.png
 )
 
 add_executable(vsrm WIN32
@@ -44,7 +45,7 @@ foreach(res ${VSRM_RESOURCES})
     add_custom_command(TARGET vsrm POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${CMAKE_CURRENT_SOURCE_DIR}/${res}
-        $<TARGET_FILE_DIR:vsrm>/schema.sql)
+        $<TARGET_FILE_DIR:vsrm>/$<IF:$<BOOL:$<STREQUAL:${res},resources/sql/schema.sql>>,schema.sql,$<IF:$<BOOL:$<STREQUAL:${res},resources/images/logo.png>>,logo.png,login_bg2.png>>)
 endforeach()
 
 # Platform libraries
@@ -72,6 +73,11 @@ else()
     else()
         message(WARNING "SQLite3 not found. The app will build, but DB features will be disabled.")
     endif()
+endif()
+
+# Use Windows CNG (bcrypt) for SHA-256; no extra dependency
+if(WIN32)
+    target_link_libraries(vsrm PRIVATE bcrypt)
 endif()
 
 target_include_directories(vsrm PRIVATE src)

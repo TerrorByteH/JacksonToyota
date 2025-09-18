@@ -186,6 +186,39 @@ std::vector<Mechanic> Database::listMechanics(bool onlyActive) {
 #endif
 }
 
+bool Database::updateMechanic(const Mechanic& mech) {
+#ifndef VSRM_HAS_SQLITE3
+	(void)mech; lastError = "SQLite not available."; return false;
+#else
+	const char* sql = "UPDATE mechanics SET name = ?1, skill = ?2, active = ?3 WHERE id = ?4;";
+	sqlite3_stmt* stmt = nullptr;
+	if (sqlite3_prepare_v2(handle, sql, -1, &stmt, nullptr) != SQLITE_OK) { lastError = sqlite3_errmsg(handle); return false; }
+	sqlite3_bind_text(stmt, 1, mech.name.c_str(), -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 2, mech.skill.c_str(), -1, SQLITE_TRANSIENT);
+	sqlite3_bind_int(stmt, 3, mech.active ? 1 : 0);
+	sqlite3_bind_int(stmt, 4, mech.id);
+	bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+	if (!ok) lastError = sqlite3_errmsg(handle);
+	sqlite3_finalize(stmt);
+	return ok;
+#endif
+}
+
+bool Database::deleteMechanic(int mechanicId) {
+#ifndef VSRM_HAS_SQLITE3
+	(void)mechanicId; lastError = "SQLite not available."; return false;
+#else
+	const char* sql = "DELETE FROM mechanics WHERE id = ?1;";
+	sqlite3_stmt* stmt = nullptr;
+	if (sqlite3_prepare_v2(handle, sql, -1, &stmt, nullptr) != SQLITE_OK) { lastError = sqlite3_errmsg(handle); return false; }
+	sqlite3_bind_int(stmt, 1, mechanicId);
+	bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+	if (!ok) lastError = sqlite3_errmsg(handle);
+	sqlite3_finalize(stmt);
+	return ok;
+#endif
+}
+
 std::optional<int> Database::addAppointment(const Appointment& appt) {
 #ifndef VSRM_HAS_SQLITE3
 	(void)appt;
@@ -276,6 +309,9 @@ std::vector<Assignment> Database::listAssignmentsByMechanic(int mechanicId) {
 } // namespace vsrm
 
 #include <iomanip>
+#include <random>
+#include <windows.h>
+#include <bcrypt.h>
 
 namespace vsrm {
 
@@ -333,6 +369,88 @@ int Database::countServiceRecordsByDateRange(const std::string& startDateInclusi
 	}
 	sqlite3_finalize(stmt);
 	return count;
+#endif
+}
+
+} // namespace vsrm
+
+namespace {
+static std::string toHex(const unsigned char* data, size_t len) {
+	static const char* hex = "0123456789abcdef";
+	std::string out; out.resize(len * 2);
+	for (size_t i = 0; i < len; ++i) { out[i*2] = hex[(data[i] >> 4) & 0xF]; out[i*2+1] = hex[data[i] & 0xF]; }
+	return out;
+}
+static std::string sha256(const std::string& input) {
+    BCRYPT_ALG_HANDLE hAlg = nullptr; BCRYPT_HASH_HANDLE hHash = nullptr;
+    NTSTATUS status = BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_SHA256_ALGORITHM, nullptr, 0);
+    if (status != 0) return {};
+    DWORD hashObjectSize = 0, cb = 0; BCryptGetProperty(hAlg, BCRYPT_OBJECT_LENGTH, (PUCHAR)&hashObjectSize, sizeof(hashObjectSize), &cb, 0);
+    DWORD hashLen = 0; BCryptGetProperty(hAlg, BCRYPT_HASH_LENGTH, (PUCHAR)&hashLen, sizeof(hashLen), &cb, 0);
+    std::vector<UCHAR> hashObject(hashObjectSize);
+    std::vector<UCHAR> hash(hashLen);
+    status = BCryptCreateHash(hAlg, &hHash, hashObject.data(), hashObjectSize, nullptr, 0, 0);
+    if (status != 0) { BCryptCloseAlgorithmProvider(hAlg, 0); return {}; }
+    status = BCryptHashData(hHash, (PUCHAR)input.data(), (ULONG)input.size(), 0);
+    if (status == 0) status = BCryptFinishHash(hHash, hash.data(), hashLen, 0);
+    BCryptDestroyHash(hHash); BCryptCloseAlgorithmProvider(hAlg, 0);
+    if (status != 0) return {};
+    return toHex(hash.data(), hash.size());
+}
+static std::string randomSalt() {
+	std::random_device rd; std::mt19937_64 gen(rd()); std::uniform_int_distribution<unsigned long long> d;
+	unsigned long long v = d(gen);
+	return sha256(std::string(reinterpret_cast<char*>(&v), sizeof(v))).substr(0, 16);
+}
+}
+
+namespace vsrm {
+
+bool Database::ensureDefaultAdmin() {
+#ifndef VSRM_HAS_SQLITE3
+	lastError = "SQLite not available."; return false;
+#else
+	const char* q = "SELECT 1 FROM users WHERE username = 'admin' LIMIT 1;";
+	sqlite3_stmt* stmt = nullptr; if (sqlite3_prepare_v2(handle, q, -1, &stmt, nullptr) != SQLITE_OK) return false;
+	int rc = sqlite3_step(stmt); bool exists = (rc == SQLITE_ROW);
+	sqlite3_finalize(stmt);
+	if (exists) return true;
+	return createUser("admin", "admin");
+#endif
+}
+
+bool Database::createUser(const std::string& username, const std::string& password) {
+#ifndef VSRM_HAS_SQLITE3
+	(void)username; (void)password; lastError = "SQLite not available."; return false;
+#else
+	std::string salt = randomSalt();
+	std::string hash = sha256(password + salt);
+	const char* sql = "INSERT INTO users (username, password_hash, salt) VALUES (?1, ?2, ?3);";
+	sqlite3_stmt* stmt = nullptr; if (sqlite3_prepare_v2(handle, sql, -1, &stmt, nullptr) != SQLITE_OK) { lastError = sqlite3_errmsg(handle); return false; }
+	sqlite3_bind_text(stmt, 1, username.c_str(), -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 2, hash.c_str(), -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 3, salt.c_str(), -1, SQLITE_TRANSIENT);
+	bool ok = sqlite3_step(stmt) == SQLITE_DONE; if (!ok) lastError = sqlite3_errmsg(handle);
+	sqlite3_finalize(stmt); return ok;
+#endif
+}
+
+bool Database::verifyLogin(const std::string& username, const std::string& password) {
+#ifndef VSRM_HAS_SQLITE3
+	(void)username; (void)password; lastError = "SQLite not available."; return false;
+#else
+	const char* sql = "SELECT password_hash, salt FROM users WHERE username = ?1 LIMIT 1;";
+	sqlite3_stmt* stmt = nullptr; if (sqlite3_prepare_v2(handle, sql, -1, &stmt, nullptr) != SQLITE_OK) { lastError = sqlite3_errmsg(handle); return false; }
+	sqlite3_bind_text(stmt, 1, username.c_str(), -1, SQLITE_TRANSIENT);
+	std::string dbHash, salt; bool found = false;
+	if (sqlite3_step(stmt) == SQLITE_ROW) {
+		found = true;
+		dbHash = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+		salt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+	}
+	sqlite3_finalize(stmt);
+	if (!found) return false;
+	return sha256(password + salt) == dbHash;
 #endif
 }
 

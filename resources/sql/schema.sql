@@ -43,4 +43,12 @@ CREATE TABLE IF NOT EXISTS assignments (
 CREATE INDEX IF NOT EXISTS idx_appointments_vin_date ON appointments (vin, scheduled_at DESC);
 CREATE INDEX IF NOT EXISTS idx_assignments_mechanic ON assignments (mechanic_id);
 
+-- Users for local authentication (simple, single-machine)
+CREATE TABLE IF NOT EXISTS users (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	username TEXT NOT NULL UNIQUE,
+	password_hash TEXT NOT NULL,
+	salt TEXT NOT NULL
+);
+
 

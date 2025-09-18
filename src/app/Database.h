@@ -65,6 +65,8 @@ public:
 	// Mechanics
 	std::optional<int> addMechanic(const Mechanic& mech);
 	std::vector<Mechanic> listMechanics(bool onlyActive = true);
+	bool updateMechanic(const Mechanic& mech);
+	bool deleteMechanic(int mechanicId);
 
 	// Appointments
 	std::optional<int> addAppointment(const Appointment& appt);
@@ -77,6 +79,11 @@ public:
 	// Reports
 	bool exportServiceHistoryCsv(const std::string& vin, const std::string& outputFilePath);
 	int countServiceRecordsByDateRange(const std::string& startDateInclusive, const std::string& endDateInclusive);
+
+	// Users/auth (local)
+	bool ensureDefaultAdmin();
+	bool createUser(const std::string& username, const std::string& password);
+	bool verifyLogin(const std::string& username, const std::string& password);
 
 	std::string getLastError() const { return lastError; }
 
