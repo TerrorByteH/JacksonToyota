@@ -1,8 +1,6 @@
 #include "Database.h"
-
-#ifdef VSRM_HAS_SQLITE3
+#define VSRM_HAS_SQLITE3 1
 #include <sqlite3.h>
-#endif
 
 #include <filesystem>
 #include <sstream>
@@ -31,36 +29,22 @@ Database& Database::operator=(Database&& other) noexcept {
 }
 
 bool Database::openOrCreate(const std::string& dbPath) {
-#ifndef VSRM_HAS_SQLITE3
-	lastError = "SQLite not available. Build with vcpkg manifest.";
-	return false;
-#else
 	if (int rc = sqlite3_open(dbPath.c_str(), &handle); rc != SQLITE_OK) {
 		lastError = "Failed to open DB: ";
 		lastError += sqlite3_errmsg(handle);
 		return false;
 	}
 	return true;
-#endif
 }
 
 void Database::close() {
-#ifdef VSRM_HAS_SQLITE3
 	if (handle) {
 		sqlite3_close(handle);
 		handle = nullptr;
 	}
-#else
-	(void)handle;
-#endif
 }
 
 bool Database::initializeSchema(const std::string& schemaFilePath) {
-#ifndef VSRM_HAS_SQLITE3
-	(void)schemaFilePath;
-	lastError = "SQLite not available.";
-	return false;
-#else
 	std::ifstream in(schemaFilePath);
 	if (!in) {
 		lastError = "Cannot open schema file: " + schemaFilePath;
@@ -78,15 +62,9 @@ bool Database::initializeSchema(const std::string& schemaFilePath) {
 		return false;
 	}
 	return true;
-#endif
 }
 
 std::optional<int> Database::addServiceRecord(const ServiceRecord& record) {
-#ifndef VSRM_HAS_SQLITE3
-	(void)record;
-	lastError = "SQLite not available.";
-	return std::nullopt;
-#else
 	const char* sql =
 		"INSERT INTO service_records (vin, customer_name, service_date, description, mechanic) "
 		"VALUES (?1, ?2, ?3, ?4, ?5);";
@@ -109,16 +87,10 @@ std::optional<int> Database::addServiceRecord(const ServiceRecord& record) {
 	int id = static_cast<int>(sqlite3_last_insert_rowid(handle));
 	sqlite3_finalize(stmt);
 	return id;
-#endif
 }
 
 std::vector<ServiceRecord> Database::listServiceRecordsByVin(const std::string& vin) {
 	std::vector<ServiceRecord> result;
-#ifndef VSRM_HAS_SQLITE3
-	(void)vin;
-	lastError = "SQLite not available.";
-	return result;
-#else
 	const char* sql =
 		"SELECT id, vin, customer_name, service_date, description, mechanic "
 		"FROM service_records WHERE vin = ?1 ORDER BY service_date DESC, id DESC;";
@@ -140,32 +112,22 @@ std::vector<ServiceRecord> Database::listServiceRecordsByVin(const std::string& 
 	}
 	sqlite3_finalize(stmt);
 	return result;
-#endif
 }
 bool Database::updateServiceRecord(const ServiceRecord& record) {
-#ifndef VSRM_HAS_SQLITE3
-    (void)record; lastError = "SQLite not available."; return false;
-#else
-    const char* sql = "UPDATE service_records SET vin = ?1, customer_name = ?2, service_date = ?3, description = ?4, mechanic = ?5 WHERE id = ?6;";
-    sqlite3_stmt* stmt = nullptr; if (sqlite3_prepare_v2(handle, sql, -1, &stmt, nullptr) != SQLITE_OK) { lastError = sqlite3_errmsg(handle); return false; }
-    sqlite3_bind_text(stmt, 1, record.vin.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, record.customerName.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, record.serviceDate.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 4, record.description.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 5, record.mechanic.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 6, record.id);
-    bool ok = sqlite3_step(stmt) == SQLITE_DONE; if (!ok) lastError = sqlite3_errmsg(handle);
-    sqlite3_finalize(stmt); return ok;
-#endif
+	const char* sql = "UPDATE service_records SET vin = ?1, customer_name = ?2, service_date = ?3, description = ?4, mechanic = ?5 WHERE id = ?6;";
+	sqlite3_stmt* stmt = nullptr; if (sqlite3_prepare_v2(handle, sql, -1, &stmt, nullptr) != SQLITE_OK) { lastError = sqlite3_errmsg(handle); return false; }
+	sqlite3_bind_text(stmt, 1, record.vin.c_str(), -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 2, record.customerName.c_str(), -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 3, record.serviceDate.c_str(), -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 4, record.description.c_str(), -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 5, record.mechanic.c_str(), -1, SQLITE_TRANSIENT);
+	sqlite3_bind_int(stmt, 6, record.id);
+	bool ok = sqlite3_step(stmt) == SQLITE_DONE; if (!ok) lastError = sqlite3_errmsg(handle);
+	sqlite3_finalize(stmt); return ok;
 }
 
 
 std::optional<int> Database::addMechanic(const Mechanic& mech) {
-#ifndef VSRM_HAS_SQLITE3
-	(void)mech;
-	lastError = "SQLite not available.";
-	return std::nullopt;
-#else
 	const char* sql = "INSERT INTO mechanics (name, skill, active) VALUES (?1, ?2, ?3);";
 	sqlite3_stmt* stmt = nullptr;
 	if (sqlite3_prepare_v2(handle, sql, -1, &stmt, nullptr) != SQLITE_OK) { lastError = sqlite3_errmsg(handle); return std::nullopt; }
@@ -176,16 +138,10 @@ std::optional<int> Database::addMechanic(const Mechanic& mech) {
 	int id = (int)sqlite3_last_insert_rowid(handle);
 	sqlite3_finalize(stmt);
 	return id;
-#endif
 }
 
 std::vector<Mechanic> Database::listMechanics(bool onlyActive) {
 	std::vector<Mechanic> result;
-#ifndef VSRM_HAS_SQLITE3
-	(void)onlyActive;
-	lastError = "SQLite not available.";
-	return result;
-#else
 	const char* sqlAll = "SELECT id, name, skill, active FROM mechanics ORDER BY name;";
 	const char* sqlAct = "SELECT id, name, skill, active FROM mechanics WHERE active = 1 ORDER BY name;";
 	sqlite3_stmt* stmt = nullptr;
@@ -200,13 +156,9 @@ std::vector<Mechanic> Database::listMechanics(bool onlyActive) {
 	}
 	sqlite3_finalize(stmt);
 	return result;
-#endif
 }
 
 bool Database::updateMechanic(const Mechanic& mech) {
-#ifndef VSRM_HAS_SQLITE3
-	(void)mech; lastError = "SQLite not available."; return false;
-#else
 	const char* sql = "UPDATE mechanics SET name = ?1, skill = ?2, active = ?3 WHERE id = ?4;";
 	sqlite3_stmt* stmt = nullptr;
 	if (sqlite3_prepare_v2(handle, sql, -1, &stmt, nullptr) != SQLITE_OK) { lastError = sqlite3_errmsg(handle); return false; }
@@ -218,13 +170,9 @@ bool Database::updateMechanic(const Mechanic& mech) {
 	if (!ok) lastError = sqlite3_errmsg(handle);
 	sqlite3_finalize(stmt);
 	return ok;
-#endif
 }
 
 bool Database::deleteMechanic(int mechanicId) {
-#ifndef VSRM_HAS_SQLITE3
-	(void)mechanicId; lastError = "SQLite not available."; return false;
-#else
 	const char* sql = "DELETE FROM mechanics WHERE id = ?1;";
 	sqlite3_stmt* stmt = nullptr;
 	if (sqlite3_prepare_v2(handle, sql, -1, &stmt, nullptr) != SQLITE_OK) { lastError = sqlite3_errmsg(handle); return false; }
@@ -233,15 +181,9 @@ bool Database::deleteMechanic(int mechanicId) {
 	if (!ok) lastError = sqlite3_errmsg(handle);
 	sqlite3_finalize(stmt);
 	return ok;
-#endif
 }
 
 std::optional<int> Database::addAppointment(const Appointment& appt) {
-#ifndef VSRM_HAS_SQLITE3
-	(void)appt;
-	lastError = "SQLite not available.";
-	return std::nullopt;
-#else
 	const char* sql = "INSERT INTO appointments (vin, customer_name, scheduled_at, status) VALUES (?1, ?2, ?3, ?4);";
 	sqlite3_stmt* stmt = nullptr;
 	if (sqlite3_prepare_v2(handle, sql, -1, &stmt, nullptr) != SQLITE_OK) { lastError = sqlite3_errmsg(handle); return std::nullopt; }
@@ -253,14 +195,10 @@ std::optional<int> Database::addAppointment(const Appointment& appt) {
 	int id = (int)sqlite3_last_insert_rowid(handle);
 	sqlite3_finalize(stmt);
 	return id;
-#endif
 }
 
 std::vector<Appointment> Database::listAppointmentsByVin(const std::string& vin) {
 	std::vector<Appointment> result;
-#ifndef VSRM_HAS_SQLITE3
-	(void)vin; lastError = "SQLite not available."; return result;
-#else
 	const char* sql = "SELECT id, vin, customer_name, scheduled_at, status FROM appointments WHERE vin = ?1 ORDER BY scheduled_at DESC, id DESC;";
 	sqlite3_stmt* stmt = nullptr;
 	if (sqlite3_prepare_v2(handle, sql, -1, &stmt, nullptr) != SQLITE_OK) { lastError = sqlite3_errmsg(handle); return result; }
@@ -276,13 +214,9 @@ std::vector<Appointment> Database::listAppointmentsByVin(const std::string& vin)
 	}
 	sqlite3_finalize(stmt);
 	return result;
-#endif
 }
 
 std::optional<int> Database::addAssignment(const Assignment& asg) {
-#ifndef VSRM_HAS_SQLITE3
-	(void)asg; lastError = "SQLite not available."; return std::nullopt;
-#else
 	const char* sql = "INSERT INTO assignments (appointment_id, mechanic_id, assigned_at, completed_at) VALUES (?1, ?2, ?3, ?4);";
 	sqlite3_stmt* stmt = nullptr;
 	if (sqlite3_prepare_v2(handle, sql, -1, &stmt, nullptr) != SQLITE_OK) { lastError = sqlite3_errmsg(handle); return std::nullopt; }
@@ -297,14 +231,10 @@ std::optional<int> Database::addAssignment(const Assignment& asg) {
 	int id = (int)sqlite3_last_insert_rowid(handle);
 	sqlite3_finalize(stmt);
 	return id;
-#endif
 }
 
 std::vector<Assignment> Database::listAssignmentsByMechanic(int mechanicId) {
 	std::vector<Assignment> result;
-#ifndef VSRM_HAS_SQLITE3
-	(void)mechanicId; lastError = "SQLite not available."; return result;
-#else
 	const char* sql = "SELECT id, appointment_id, mechanic_id, assigned_at, completed_at FROM assignments WHERE mechanic_id = ?1 ORDER BY assigned_at DESC, id DESC;";
 	sqlite3_stmt* stmt = nullptr;
 	if (sqlite3_prepare_v2(handle, sql, -1, &stmt, nullptr) != SQLITE_OK) { lastError = sqlite3_errmsg(handle); return result; }
@@ -320,7 +250,6 @@ std::vector<Assignment> Database::listAssignmentsByMechanic(int mechanicId) {
 	}
 	sqlite3_finalize(stmt);
 	return result;
-#endif
 }
 
 } // namespace vsrm

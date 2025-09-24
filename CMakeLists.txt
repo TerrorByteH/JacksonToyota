@@ -20,9 +20,6 @@ if(MSVC)
     add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/W4>)
 endif()
 
-# vcpkg manifest mode will pull dependencies declared in vcpkg.json
-# We depend on sqlite3 via vcpkg
-
 include(FetchContent)
 
 # Resources (SQL schema file) to be copied next to the executable
@@ -60,18 +57,32 @@ if(WIN32)
     )
 endif()
 
-# Find SQLite3 from vcpkg (manifest mode) or system
+# Try multiple ways to find SQLite3
 find_package(unofficial-sqlite3 CONFIG QUIET)
 if(unofficial-sqlite3_FOUND)
+    message(STATUS "Found SQLite3 via unofficial-sqlite3")
     target_link_libraries(vsrm PRIVATE unofficial::sqlite3::sqlite3)
     target_compile_definitions(vsrm PRIVATE VSRM_HAS_SQLITE3)
 else()
     find_package(SQLite3 QUIET)
     if(SQLite3_FOUND)
+        message(STATUS "Found SQLite3 via SQLite3 package")
         target_link_libraries(vsrm PRIVATE SQLite::SQLite3)
         target_compile_definitions(vsrm PRIVATE VSRM_HAS_SQLITE3)
     else()
-        message(WARNING "SQLite3 not found. The app will build, but DB features will be disabled.")
+        # Try pkg-config as last resort
+        find_package(PkgConfig QUIET)
+        if(PKG_CONFIG_FOUND)
+            pkg_check_modules(SQLITE3 QUIET sqlite3)
+            if(SQLITE3_FOUND)
+                message(STATUS "Found SQLite3 via pkg-config")
+                target_link_libraries(vsrm PRIVATE ${SQLITE3_LIBRARIES})
+                target_include_directories(vsrm PRIVATE ${SQLITE3_INCLUDE_DIRS})
+                target_compile_definitions(vsrm PRIVATE VSRM_HAS_SQLITE3)
+            else()
+                message(WARNING "SQLite3 not found. The app will build, but DB features will be disabled.")
+            endif()
+        endif()
     endif()
 endif()
 

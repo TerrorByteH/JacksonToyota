@@ -6,13 +6,27 @@
 #include <gdiplus.h>
 #include <shlobj.h>
 #include <fstream>
+#include <codecvt>
+#include <locale>
 
 #include "../app/Database.h"
 
 namespace fs = std::filesystem;
 
 static std::wstring W(const std::string& s) {
-	return std::wstring(s.begin(), s.end());
+    if (s.empty()) return std::wstring();
+    int size_needed = MultiByteToWideChar(CP_UTF8, 0, &s[0], (int)s.size(), NULL, 0);
+    std::wstring wstrTo(size_needed, 0);
+    MultiByteToWideChar(CP_UTF8, 0, &s[0], (int)s.size(), &wstrTo[0], size_needed);
+    return wstrTo;
+}
+
+static std::string A(const std::wstring& w) {
+    if (w.empty()) return std::string();
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0, &w[0], (int)w.size(), NULL, 0, NULL, NULL);
+    std::string strTo(size_needed, 0);
+    WideCharToMultiByte(CP_UTF8, 0, &w[0], (int)w.size(), &strTo[0], size_needed, NULL, NULL);
+    return strTo;
 }
 
 // Edit control helpers for placeholders/padding (may require Common Controls v6)
@@ -43,15 +57,15 @@ struct AppState;
 static void CenterWindowOnParent(HWND hwnd, HWND parent);
 
 struct LoginCtx {
-    AppState* state;
-    HFONT font;
-    HWND eUser;
-    HWND ePass;
-    HWND chkRemember;
-    HWND btnShow;
-    HWND linkForgot;
-    HWND btnSignIn;
-    bool authed;
+    AppState* state{};
+    HFONT font{};
+    HWND eUser{};
+    HWND ePass{};
+    HWND chkRemember{};
+    HWND btnShow{};
+    HWND linkForgot{};
+    HWND btnSignIn{};
+    bool authed{};
     // GDI+ visuals
     ULONG_PTR gdipToken{};
     Gdiplus::Image* bg{};
@@ -352,8 +366,12 @@ static void OpenRecordEditor(HWND parent, AppState* state, const std::string& vi
     }
     CenterWindowOnParent(dlg, parent);
     ShowWindow(dlg, SW_SHOW);
+    // Use IsDialogMessage for proper button handling
     MSG m; bool done = false;
     while (!done && GetMessageW(&m, nullptr, 0, 0)) {
+        if (m.hwnd == dlg || IsChild(dlg, m.hwnd)) {
+            if (IsDialogMessageW(dlg, &m)) continue;
+        }
         if (m.message == WM_COMMAND) {
             int id = LOWORD(m.wParam);
             if (id == 5190) {
@@ -427,9 +445,12 @@ static void ShowAddRecordDialog(HWND parent, AppState* state) {
     if (state) SendMessageW(dlg, WM_SETFONT, (WPARAM)state->hFont, TRUE);
     CenterWindowOnParent(dlg, parent);
     ShowWindow(dlg, SW_SHOW);
-    // Modal loop
+    // Modal loop with IsDialogMessage
     MSG m; bool done = false;
     while (!done && GetMessageW(&m, nullptr, 0, 0)) {
+        if (m.hwnd == dlg || IsChild(dlg, m.hwnd)) {
+            if (IsDialogMessageW(dlg, &m)) continue;
+        }
         if (m.message == WM_COMMAND) {
             int id = LOWORD(m.wParam);
             if (id == IDC_BTN_SAVE) {
@@ -441,7 +462,7 @@ static void ShowAddRecordDialog(HWND parent, AppState* state) {
                 GetWindowTextW(eDesc, wbuf, 512); rec.description = std::string(wbuf, wbuf + wcslen(wbuf));
                 GetWindowTextW(eMech, wbuf, 512); rec.mechanic = std::string(wbuf, wbuf + wcslen(wbuf));
                 if (rec.vin.empty() || rec.customerName.empty() || rec.serviceDate.empty()) {
-                    MessageBoxW(dlg, L"Please fill VIN, Customer, and Date.", L"Validation", MB_ICONWARNING);
+                    MessageBoxW(dlg, L"Please fill VIN, Customer and Date.", L"Validation", MB_ICONWARNING);
                 } else {
                     auto idOpt = state->db.addServiceRecord(rec);
                     if (!idOpt) MessageBoxW(dlg, W(state->db.getLastError()).c_str(), L"DB Error", MB_ICONERROR);
@@ -554,9 +575,9 @@ static void AppendText(HWND edit, const std::wstring& text) {
 
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     AppState* state = reinterpret_cast<AppState*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-	static HWND hEdit;
-	static HWND hToolbar;
-	static HWND hStatus;
+	static HWND hEdit{};
+	static HWND hToolbar{};
+	static HWND hStatus{};
 	switch (msg) {
     case WM_CREATE: {
         // Set up per-window state pointer from lpCreateParams first
