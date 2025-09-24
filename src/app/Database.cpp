@@ -142,6 +142,23 @@ std::vector<ServiceRecord> Database::listServiceRecordsByVin(const std::string& 
 	return result;
 #endif
 }
+bool Database::updateServiceRecord(const ServiceRecord& record) {
+#ifndef VSRM_HAS_SQLITE3
+    (void)record; lastError = "SQLite not available."; return false;
+#else
+    const char* sql = "UPDATE service_records SET vin = ?1, customer_name = ?2, service_date = ?3, description = ?4, mechanic = ?5 WHERE id = ?6;";
+    sqlite3_stmt* stmt = nullptr; if (sqlite3_prepare_v2(handle, sql, -1, &stmt, nullptr) != SQLITE_OK) { lastError = sqlite3_errmsg(handle); return false; }
+    sqlite3_bind_text(stmt, 1, record.vin.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, record.customerName.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, record.serviceDate.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, record.description.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 5, record.mechanic.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 6, record.id);
+    bool ok = sqlite3_step(stmt) == SQLITE_DONE; if (!ok) lastError = sqlite3_errmsg(handle);
+    sqlite3_finalize(stmt); return ok;
+#endif
+}
+
 
 std::optional<int> Database::addMechanic(const Mechanic& mech) {
 #ifndef VSRM_HAS_SQLITE3
@@ -353,6 +370,28 @@ bool Database::exportServiceHistoryCsv(const std::string& vin, const std::string
 	return true;
 #endif
 }
+bool Database::exportAllServiceRecordsCsv(const std::string& outputFilePath) {
+#ifndef VSRM_HAS_SQLITE3
+    (void)outputFilePath; lastError = "SQLite not available."; return false;
+#else
+    std::ofstream out(outputFilePath, std::ios::binary);
+    if (!out) { lastError = "Failed to open output file"; return false; }
+    out << "id,vin,customer_name,service_date,description,mechanic\n";
+    const char* sql = "SELECT id, vin, customer_name, service_date, description, mechanic FROM service_records ORDER BY service_date, id;";
+    sqlite3_stmt* stmt = nullptr; if (sqlite3_prepare_v2(handle, sql, -1, &stmt, nullptr) != SQLITE_OK) { lastError = sqlite3_errmsg(handle); return false; }
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        std::string id = std::to_string(sqlite3_column_int(stmt, 0));
+        std::string cvin = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        std::string cust = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        std::string date = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        std::string desc = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+        std::string mech = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
+        out << id << ',' << escapeCsv(cvin) << ',' << escapeCsv(cust) << ',' << escapeCsv(date) << ',' << escapeCsv(desc) << ',' << escapeCsv(mech) << "\n";
+    }
+    sqlite3_finalize(stmt); return true;
+#endif
+}
+
 
 int Database::countServiceRecordsByDateRange(const std::string& startDateInclusive, const std::string& endDateInclusive) {
 #ifndef VSRM_HAS_SQLITE3
@@ -451,6 +490,141 @@ bool Database::verifyLogin(const std::string& username, const std::string& passw
 	sqlite3_finalize(stmt);
 	if (!found) return false;
 	return sha256(password + salt) == dbHash;
+#endif
+}
+
+} // namespace vsrm
+
+namespace vsrm {
+
+static int singleIntQuery(sqlite3* db, const char* sql) {
+    int value = 0; sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) value = sqlite3_column_int(stmt, 0);
+    }
+    if (stmt) sqlite3_finalize(stmt);
+    return value;
+}
+
+int Database::countDistinctCustomers() {
+#ifndef VSRM_HAS_SQLITE3
+    lastError = "SQLite not available."; return 0;
+#else
+    return singleIntQuery(handle, "SELECT COUNT(DISTINCT customer_name) FROM service_records;");
+#endif
+}
+
+int Database::countActiveMechanics() {
+#ifndef VSRM_HAS_SQLITE3
+    lastError = "SQLite not available."; return 0;
+#else
+    return singleIntQuery(handle, "SELECT COUNT(*) FROM mechanics WHERE active = 1;");
+#endif
+}
+
+int Database::countAppointments() {
+#ifndef VSRM_HAS_SQLITE3
+    lastError = "SQLite not available."; return 0;
+#else
+    return singleIntQuery(handle, "SELECT COUNT(*) FROM appointments;");
+#endif
+}
+
+int Database::countServiceRecords() {
+#ifndef VSRM_HAS_SQLITE3
+    lastError = "SQLite not available."; return 0;
+#else
+    return singleIntQuery(handle, "SELECT COUNT(*) FROM service_records;");
+#endif
+}
+
+std::vector<ServiceRecord> Database::fetchRecentServiceRecords(int limit) {
+    std::vector<ServiceRecord> result;
+#ifndef VSRM_HAS_SQLITE3
+    (void)limit; lastError = "SQLite not available."; return result;
+#else
+    const char* sql = "SELECT id, vin, customer_name, service_date, description, mechanic FROM service_records ORDER BY service_date DESC, id DESC LIMIT ?1;";
+    sqlite3_stmt* stmt = nullptr; if (sqlite3_prepare_v2(handle, sql, -1, &stmt, nullptr) != SQLITE_OK) { lastError = sqlite3_errmsg(handle); return result; }
+    sqlite3_bind_int(stmt, 1, limit);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        ServiceRecord r{};
+        r.id = sqlite3_column_int(stmt, 0);
+        r.vin = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        r.customerName = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        r.serviceDate = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        r.description = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+        r.mechanic = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
+        result.push_back(std::move(r));
+    }
+    sqlite3_finalize(stmt); return result;
+#endif
+}
+
+} // namespace vsrm
+
+namespace vsrm {
+
+std::vector<VehicleSummary> Database::listVehicleSummaries(
+    const std::string& vinLike,
+    const std::optional<std::string>& fromDate,
+    const std::optional<std::string>& toDate,
+    const std::optional<std::string>& mechanicLike,
+    bool dueOnly) {
+    std::vector<VehicleSummary> result;
+#ifndef VSRM_HAS_SQLITE3
+    (void)vinLike; (void)fromDate; (void)toDate; (void)mechanicLike; (void)dueOnly; lastError = "SQLite not available."; return result;
+#else
+    // Build SQL to compute last service per VIN and next upcoming appointment (if any)
+    std::string sql =
+        "WITH last AS (\n"
+        "  SELECT vin, MAX(service_date) AS last_date\n"
+        "  FROM service_records\n"
+        "  GROUP BY vin\n"
+        ")\n"
+        "SELECT l.vin, '' AS make, '' AS model, l.last_date,\n"
+        "       (SELECT mechanic FROM service_records sr WHERE sr.vin = l.vin AND sr.service_date = l.last_date ORDER BY id DESC LIMIT 1) AS mech,\n"
+        "       (SELECT MIN(scheduled_at) FROM appointments a WHERE a.vin = l.vin AND a.status IN ('scheduled','in_progress')) AS next_service,\n"
+        "       COALESCE((SELECT status FROM appointments a2 WHERE a2.vin = l.vin ORDER BY scheduled_at DESC, id DESC LIMIT 1), 'ok') AS status\n"
+        "FROM last l\n";
+
+    // Apply filters
+    std::vector<std::string> where;
+    if (!vinLike.empty()) where.push_back("l.vin LIKE ?1");
+    if (fromDate.has_value()) where.push_back("l.last_date >= ?2");
+    if (toDate.has_value()) where.push_back("l.last_date <= ?3");
+    if (mechanicLike.has_value()) where.push_back("EXISTS (SELECT 1 FROM service_records s2 WHERE s2.vin = l.vin AND s2.mechanic LIKE ?4)");
+    if (dueOnly) where.push_back("EXISTS (SELECT 1 FROM appointments a3 WHERE a3.vin = l.vin AND a3.status IN ('scheduled','in_progress'))");
+    if (!where.empty()) {
+        sql += " WHERE ";
+        for (size_t i = 0; i < where.size(); ++i) {
+            if (i) sql += " AND ";
+            sql += where[i];
+        }
+    }
+    sql += " ORDER BY l.last_date DESC, l.vin";
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(handle, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) { lastError = sqlite3_errmsg(handle); return result; }
+
+    int bindIndex = 1;
+    if (!vinLike.empty()) { std::string like = "%" + vinLike + "%"; sqlite3_bind_text(stmt, bindIndex++, like.c_str(), -1, SQLITE_TRANSIENT); }
+    if (fromDate.has_value()) sqlite3_bind_text(stmt, bindIndex++, fromDate->c_str(), -1, SQLITE_TRANSIENT);
+    if (toDate.has_value()) sqlite3_bind_text(stmt, bindIndex++, toDate->c_str(), -1, SQLITE_TRANSIENT);
+    if (mechanicLike.has_value()) { std::string likeM = "%" + *mechanicLike + "%"; sqlite3_bind_text(stmt, bindIndex++, likeM.c_str(), -1, SQLITE_TRANSIENT); }
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        VehicleSummary v{};
+        v.vin = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        v.make = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        v.model = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        v.lastServiceDate = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        v.mechanic = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+        if (sqlite3_column_type(stmt, 5) != SQLITE_NULL) v.nextService = std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5))); else v.nextService.reset();
+        v.status = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
+        result.push_back(std::move(v));
+    }
+    sqlite3_finalize(stmt);
+    return result;
 #endif
 }
 

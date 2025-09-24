@@ -40,6 +40,16 @@ struct Assignment {
 	std::optional<std::string> completedAt; // ISO 8601
 };
 
+struct VehicleSummary {
+    std::string vin;
+    std::string make;        // optional: left blank if unknown
+    std::string model;       // optional: left blank if unknown
+    std::string lastServiceDate;
+    std::string mechanic;
+    std::optional<std::string> nextService;
+    std::string status;      // scheduled, ok
+};
+
 class Database {
 public:
 	Database();
@@ -61,6 +71,7 @@ public:
 	// CRUD for service records (minimal for demo)
 	std::optional<int> addServiceRecord(const ServiceRecord& record);
 	std::vector<ServiceRecord> listServiceRecordsByVin(const std::string& vin);
+    bool updateServiceRecord(const ServiceRecord& record);
 
 	// Mechanics
 	std::optional<int> addMechanic(const Mechanic& mech);
@@ -84,6 +95,22 @@ public:
 	bool ensureDefaultAdmin();
 	bool createUser(const std::string& username, const std::string& password);
 	bool verifyLogin(const std::string& username, const std::string& password);
+
+    // Dashboard metrics
+    int countDistinctCustomers();
+    int countActiveMechanics();
+    int countAppointments();
+    int countServiceRecords();
+    std::vector<ServiceRecord> fetchRecentServiceRecords(int limit);
+    bool exportAllServiceRecordsCsv(const std::string& outputFilePath);
+
+    // Vehicle summaries for the grid
+    std::vector<VehicleSummary> listVehicleSummaries(
+        const std::string& vinLike,
+        const std::optional<std::string>& fromDate,
+        const std::optional<std::string>& toDate,
+        const std::optional<std::string>& mechanicLike,
+        bool dueOnly);
 
 	std::string getLastError() const { return lastError; }
 
