@@ -13,6 +13,28 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Enable testing
+enable_testing()
+
+# Set output directories
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+
+# Add compiler warnings
+if(MSVC)
+    add_compile_options(/W4 /WX)
+else()
+    add_compile_options(-Wall -Wextra -Wpedantic -Werror)
+endif()
+
+# Add debug symbols
+set(CMAKE_DEBUG_POSTFIX "d")
+set(CMAKE_BUILD_TYPE Debug)
+
+# Enable IDE folders
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+
 # Detect if building with MSVC and set Unicode
 if(MSVC)
     add_definitions(-DUNICODE -D_UNICODE)
@@ -57,34 +79,49 @@ if(WIN32)
     )
 endif()
 
-# Try multiple ways to find SQLite3
-find_package(unofficial-sqlite3 CONFIG QUIET)
-if(unofficial-sqlite3_FOUND)
-    message(STATUS "Found SQLite3 via unofficial-sqlite3")
-    target_link_libraries(vsrm PRIVATE unofficial::sqlite3::sqlite3)
-    target_compile_definitions(vsrm PRIVATE VSRM_HAS_SQLITE3)
-else()
-    find_package(SQLite3 QUIET)
-    if(SQLite3_FOUND)
-        message(STATUS "Found SQLite3 via SQLite3 package")
-        target_link_libraries(vsrm PRIVATE SQLite::SQLite3)
-        target_compile_definitions(vsrm PRIVATE VSRM_HAS_SQLITE3)
-    else()
-        # Try pkg-config as last resort
-        find_package(PkgConfig QUIET)
-        if(PKG_CONFIG_FOUND)
-            pkg_check_modules(SQLITE3 QUIET sqlite3)
-            if(SQLITE3_FOUND)
-                message(STATUS "Found SQLite3 via pkg-config")
-                target_link_libraries(vsrm PRIVATE ${SQLITE3_LIBRARIES})
-                target_include_directories(vsrm PRIVATE ${SQLITE3_INCLUDE_DIRS})
-                target_compile_definitions(vsrm PRIVATE VSRM_HAS_SQLITE3)
-            else()
-                message(WARNING "SQLite3 not found. The app will build, but DB features will be disabled.")
-            endif()
-        endif()
-    endif()
-endif()
+# Find dependencies
+find_package(unofficial-sqlite3 CONFIG REQUIRED)
+find_package(imgui CONFIG REQUIRED)
+find_package(fmt CONFIG REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
+
+# Link dependencies
+target_link_libraries(vsrm PRIVATE
+    unofficial::sqlite3::sqlite3
+    imgui::imgui
+    fmt::fmt
+    spdlog::spdlog
+    nlohmann_json::nlohmann_json
+)
+
+# Enable precompiled headers
+target_precompile_headers(vsrm PRIVATE
+    <vector>
+    <string>
+    <memory>
+    <filesystem>
+    <windows.h>
+    <gdiplus.h>
+    <CommCtrl.h>
+)
+
+# Set Windows subsystem
+set_target_properties(vsrm PROPERTIES
+    WIN32_EXECUTABLE TRUE
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
+# Add compile definitions
+target_compile_definitions(vsrm PRIVATE
+    UNICODE
+    _UNICODE
+    VSRM_HAS_SQLITE3
+    WIN32_LEAN_AND_MEAN
+    NOMINMAX
+    _CRT_SECURE_NO_WARNINGS
+)
 
 # Use Windows CNG (bcrypt) for SHA-256; no extra dependency
 if(WIN32)

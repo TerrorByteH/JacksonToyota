@@ -1,8 +1,41 @@
 {
   "name": "vsrm",
-  "version-string": "0.1.0",
+  "version": "0.1.0",
   "dependencies": [
-    "sqlite3"
+    {
+      "name": "sqlite3",
+      "version>=": "3.37.2"
+    },
+    {
+      "name": "imgui",
+      "features": ["win32-binding", "dx11-binding"]
+    },
+    {
+      "name": "fmt",
+      "version>=": "8.1.1"
+    },
+    {
+      "name": "spdlog",
+      "version>=": "1.9.2"
+    },
+    {
+      "name": "nlohmann-json",
+      "version>=": "3.10.5"
+    }
   ],
-  "builtin-baseline": "c05aa0b93924e82a45bb7d1a1c48258fdc280da5"
+  "builtin-baseline": "c05aa0b93924e82a45bb7d1a1c48258fdc280da5",
+  "overrides": [
+    {
+      "name": "sqlite3",
+      "version": "3.37.2"
+    }
+  ],
+  "features": {
+    "tests": {
+      "description": "Build tests",
+      "dependencies": [
+        "gtest"
+      ]
+    }
+  }
 }

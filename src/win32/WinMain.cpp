@@ -244,42 +244,62 @@ static bool ShowLoginDialog(AppState* state, HINSTANCE hInst, HFONT hFont) {
     return ctx.authed;
 }
 
+// Modern UI Colors
+struct UIColors {
+    static const COLORREF Background = RGB(250, 251, 252);
+    static const COLORREF HeaderBg = RGB(243, 244, 246);
+    static const COLORREF Primary = RGB(37, 99, 235);    // Blue
+    static const COLORREF Success = RGB(22, 163, 74);    // Green
+    static const COLORREF Danger = RGB(220, 38, 38);     // Red
+    static const COLORREF Warning = RGB(234, 179, 8);    // Yellow
+    static const COLORREF TextPrimary = RGB(17, 24, 39); // Near black
+    static const COLORREF TextSecondary = RGB(107, 114, 128); // Gray
+    static const COLORREF Border = RGB(229, 231, 235);
+};
+
 struct AppState {
-	vsrm::Database db;
-	std::wstring dbPath;
-    HFONT hFont{};
-    HBRUSH hBg{};           // main background
-    HBRUSH hHeaderBg{};     // banner background
-    HBRUSH hButtonBg{};     // welcome button background
-    HBRUSH hBtnPrimary{};   // primary buttons
-    HBRUSH hBtnDanger{};    // danger buttons
-    HBRUSH hBtnSuccess{};   // success buttons (Refresh)
-    Gdiplus::Image* logo{};
+    vsrm::Database db;
+    std::wstring dbPath;
+    HFONT hFont{nullptr};          // Segoe UI
+    HFONT hFontBold{nullptr};      // Segoe UI Bold
+    HFONT hFontLight{nullptr};     // Segoe UI Light
+    HBRUSH hBg{nullptr};           // main background
+    HBRUSH hHeaderBg{nullptr};     // banner background
+    HBRUSH hButtonBg{nullptr};     // welcome button background
+    HBRUSH hBtnPrimary{nullptr};   // primary buttons
+    HBRUSH hBtnDanger{nullptr};    // danger buttons
+    HBRUSH hBtnSuccess{nullptr};   // success buttons (Refresh)
+    Gdiplus::Image* logo{nullptr};
+    
+    // Modern UI elements
+    HPEN hBorderPen{nullptr};      // Border pen
+    HBRUSH hHoverBg{nullptr};      // Hover state background
+    bool isDarkMode{false};        // Dark mode state
     // Welcome panel
     bool showWelcome{true};
-    HWND hBtnAdd{};
-    HWND hBtnQuery{};
-    HWND hBtnMechanics{};
-    HWND hBtnExport{};
-    HWND hBtnRefresh{};
+    HWND hBtnAdd{nullptr};
+    HWND hBtnQuery{nullptr};
+    HWND hBtnMechanics{nullptr};
+    HWND hBtnExport{nullptr};
+    HWND hBtnRefresh{nullptr};
     // New layout elements
-    HWND hLeftNav{};
-    HWND hNavDashboard{};
-    HWND hNavVehicles{};
-    HWND hNavMechanics{};
-    HWND hNavReports{};
-    HFONT hIconFont{}; // Segoe MDL2 Assets for icons
+    HWND hLeftNav{nullptr};
+    HWND hNavDashboard{nullptr};
+    HWND hNavVehicles{nullptr};
+    HWND hNavMechanics{nullptr};
+    HWND hNavReports{nullptr};
+    HFONT hIconFont{nullptr}; // Segoe MDL2 Assets for icons
     // Search bar
-    HWND hSearchVin{};
-    HWND hSearchDateFrom{};
-    HWND hSearchDateTo{};
-    HWND hSearchMechanic{};
-    HWND hChkDue{};
+    HWND hSearchVin{nullptr};
+    HWND hSearchDateFrom{nullptr};
+    HWND hSearchDateTo{nullptr};
+    HWND hSearchMechanic{nullptr};
+    HWND hChkDue{nullptr};
     // Data grid
-    HWND hList{};
+    HWND hList{nullptr};
     // Views
     enum class View { Vehicles, Reports } currentView{ View::Vehicles };
-    HWND hReportsPanel{};
+    HWND hReportsPanel{nullptr};
     // Settings persistence
     std::wstring settingsPath;
 };
@@ -366,31 +386,33 @@ static void OpenRecordEditor(HWND parent, AppState* state, const std::string& vi
     }
     CenterWindowOnParent(dlg, parent);
     ShowWindow(dlg, SW_SHOW);
-    // Use IsDialogMessage for proper button handling
+    // Modal message loop for dialog only
     MSG m; bool done = false;
-    while (!done && GetMessageW(&m, nullptr, 0, 0)) {
+    while (!done && IsWindow(dlg) && GetMessageW(&m, nullptr, 0, 0)) {
         if (m.hwnd == dlg || IsChild(dlg, m.hwnd)) {
             if (IsDialogMessageW(dlg, &m)) continue;
-        }
-        if (m.message == WM_COMMAND) {
-            int id = LOWORD(m.wParam);
-            if (id == 5190) {
-                wchar_t wb[512]; vsrm::ServiceRecord rec{};
-                GetWindowTextW(eVin, wb, 512); rec.vin = std::string(wb, wb + wcslen(wb));
-                GetWindowTextW(eCust, wb, 512); rec.customerName = std::string(wb, wb + wcslen(wb));
-                GetWindowTextW(eDate, wb, 512); rec.serviceDate = std::string(wb, wb + wcslen(wb));
-                GetWindowTextW(eDesc, wb, 512); rec.description = std::string(wb, wb + wcslen(wb));
-                GetWindowTextW(eMech, wb, 512); rec.mechanic = std::string(wb, wb + wcslen(wb));
-                if (rec.vin.empty() || rec.customerName.empty() || rec.serviceDate.empty()) {
-                    MessageBoxW(dlg, L"Please fill VIN, Customer and Date.", L"Validation", MB_ICONWARNING);
-                } else {
-                    bool ok = false;
-                    if (editingId > 0) { rec.id = editingId; ok = state->db.updateServiceRecord(rec); }
-                    else { ok = (bool)state->db.addServiceRecord(rec); }
-                    if (!ok) MessageBoxW(dlg, W(state->db.getLastError()).c_str(), L"DB Error", MB_ICONERROR); else done = true;
+            if (m.message == WM_COMMAND) {
+                int id = LOWORD(m.wParam);
+                if (id == 5190) {
+                    wchar_t wb[512]; vsrm::ServiceRecord rec{};
+                    GetWindowTextW(eVin, wb, 512); rec.vin = std::string(wb, wb + wcslen(wb));
+                    GetWindowTextW(eCust, wb, 512); rec.customerName = std::string(wb, wb + wcslen(wb));
+                    GetWindowTextW(eDate, wb, 512); rec.serviceDate = std::string(wb, wb + wcslen(wb));
+                    GetWindowTextW(eDesc, wb, 512); rec.description = std::string(wb, wb + wcslen(wb));
+                    GetWindowTextW(eMech, wb, 512); rec.mechanic = std::string(wb, wb + wcslen(wb));
+                    if (rec.vin.empty() || rec.customerName.empty() || rec.serviceDate.empty()) {
+                        MessageBoxW(dlg, L"Please fill VIN, Customer and Date.", L"Validation", MB_ICONWARNING);
+                    } else {
+                        auto idOpt = state->db.addServiceRecord(rec);
+                        if (!idOpt) {
+                            MessageBoxW(dlg, W(state->db.getLastError()).c_str(), L"DB Error", MB_ICONERROR);
+                        } else {
+                            done = true;
+                        }
+                    }
+                } else if (id == 5191) {
+                    done = true;
                 }
-            } else if (id == 5191) {
-                done = true;
             }
         }
         TranslateMessage(&m); DispatchMessageW(&m);
@@ -443,33 +465,47 @@ static void ShowAddRecordDialog(HWND parent, AppState* state) {
     HWND bSave = CreateWindowExW(0, L"BUTTON", L"Save", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 300, 270, 90, 28, dlg, (HMENU)IDC_BTN_SAVE, hi, nullptr);
     HWND bCancel = CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE, 400, 270, 90, 28, dlg, (HMENU)IDC_BTN_CANCEL, hi, nullptr);
     if (state) SendMessageW(dlg, WM_SETFONT, (WPARAM)state->hFont, TRUE);
+    int editingId = 0;
+    if (!rows.empty()) {
+        SetWindowTextW(eVin, W(rows[0].vin).c_str());
+        SetWindowTextW(eCust, W(rows[0].customerName).c_str());
+        SetWindowTextW(eDate, W(rows[0].serviceDate).c_str());
+        SetWindowTextW(eMech, W(rows[0].mechanic).c_str());
+        SetWindowTextW(eDesc, W(rows[0].description).c_str());
+        editingId = rows[0].id;
+    } else if (!vin.empty()) {
+        SetWindowTextW(eVin, W(vin).c_str());
+    }
     CenterWindowOnParent(dlg, parent);
     ShowWindow(dlg, SW_SHOW);
-    // Modal loop with IsDialogMessage
+    // Modal message loop for dialog only
     MSG m; bool done = false;
-    while (!done && GetMessageW(&m, nullptr, 0, 0)) {
+    while (!done && IsWindow(dlg) && GetMessageW(&m, nullptr, 0, 0)) {
         if (m.hwnd == dlg || IsChild(dlg, m.hwnd)) {
             if (IsDialogMessageW(dlg, &m)) continue;
-        }
-        if (m.message == WM_COMMAND) {
-            int id = LOWORD(m.wParam);
-            if (id == IDC_BTN_SAVE) {
-                wchar_t wbuf[512];
-                vsrm::ServiceRecord rec{};
-                GetWindowTextW(eVin, wbuf, 512); rec.vin = std::string(wbuf, wbuf + wcslen(wbuf));
-                GetWindowTextW(eCust, wbuf, 512); rec.customerName = std::string(wbuf, wbuf + wcslen(wbuf));
-                GetWindowTextW(eDate, wbuf, 512); rec.serviceDate = std::string(wbuf, wbuf + wcslen(wbuf));
-                GetWindowTextW(eDesc, wbuf, 512); rec.description = std::string(wbuf, wbuf + wcslen(wbuf));
-                GetWindowTextW(eMech, wbuf, 512); rec.mechanic = std::string(wbuf, wbuf + wcslen(wbuf));
-                if (rec.vin.empty() || rec.customerName.empty() || rec.serviceDate.empty()) {
-                    MessageBoxW(dlg, L"Please fill VIN, Customer and Date.", L"Validation", MB_ICONWARNING);
-                } else {
-                    auto idOpt = state->db.addServiceRecord(rec);
-                    if (!idOpt) MessageBoxW(dlg, W(state->db.getLastError()).c_str(), L"DB Error", MB_ICONERROR);
-                    else done = true;
+            if (m.message == WM_COMMAND) {
+                int id = LOWORD(m.wParam);
+                if (id == IDC_BTN_SAVE) {
+                    wchar_t wbuf[512];
+                    vsrm::ServiceRecord rec{};
+                    GetWindowTextW(eVin, wbuf, 512); rec.vin = std::string(wbuf, wbuf + wcslen(wbuf));
+                    GetWindowTextW(eCust, wbuf, 512); rec.customerName = std::string(wbuf, wbuf + wcslen(wbuf));
+                    GetWindowTextW(eDate, wbuf, 512); rec.serviceDate = std::string(wbuf, wbuf + wcslen(wbuf));
+                    GetWindowTextW(eDesc, wbuf, 512); rec.description = std::string(wbuf, wbuf + wcslen(wbuf));
+                    GetWindowTextW(eMech, wbuf, 512); rec.mechanic = std::string(wbuf, wbuf + wcslen(wbuf));
+                    if (rec.vin.empty() || rec.customerName.empty() || rec.serviceDate.empty()) {
+                        MessageBoxW(dlg, L"Please fill VIN, Customer and Date.", L"Validation", MB_ICONWARNING);
+                    } else {
+                        auto idOpt = state->db.addServiceRecord(rec);
+                        if (!idOpt) {
+                            MessageBoxW(dlg, W(state->db.getLastError()).c_str(), L"DB Error", MB_ICONERROR);
+                        } else {
+                            done = true;
+                        }
+                    }
+                } else if (id == IDC_BTN_CANCEL) {
+                    done = true;
                 }
-            } else if (id == IDC_BTN_CANCEL) {
-                done = true;
             }
         }
         TranslateMessage(&m); DispatchMessageW(&m);
@@ -500,11 +536,13 @@ static void ShowManageMechanicsDialog(HWND parent, AppState* state) {
     RefreshMechanicList(hList, state);
     MSG m; bool done = false;
     while (!done && GetMessageW(&m, nullptr, 0, 0)) {
+        if (m.hwnd == dlg || IsChild(dlg, m.hwnd)) {
+            if (IsDialogMessageW(dlg, &m)) continue;
+        }
         if (m.message == WM_COMMAND) {
             int id = LOWORD(m.wParam);
             if (id == IDC_MECH_CLOSE) { done = true; }
             if (id == IDC_MECH_ADD) {
-                // Tiny inline add dialog
                 HWND addDlg = CreateWindowExW(WS_EX_DLGMODALFRAME, L"STATIC", L"Add Mechanic",
                     WS_POPUP | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT, 420, 200, dlg, nullptr, hi, nullptr);
                 CreateWindowExW(0, L"STATIC", L"Name:", WS_CHILD | WS_VISIBLE, 16, 40, 80, 20, addDlg, nullptr, hi, nullptr);
@@ -517,26 +555,30 @@ static void ShowManageMechanicsDialog(HWND parent, AppState* state) {
                 if (state) SendMessageW(addDlg, WM_SETFONT, (WPARAM)state->hFont, TRUE);
                 CenterWindowOnParent(addDlg, dlg); ShowWindow(addDlg, SW_SHOW);
                 bool addDone = false;
-                while (!addDone && GetMessageW(&m, nullptr, 0, 0)) {
-                    if (m.message == WM_COMMAND) {
-                        int id2 = LOWORD(m.wParam);
-                        if (id2 == IDC_MECH_OK) {
-                            wchar_t wbuf[512]; vsrm::Mechanic mm{};
-                            GetWindowTextW(eName, wbuf, 512); mm.name = std::string(wbuf, wbuf + wcslen(wbuf));
-                            GetWindowTextW(eSkill, wbuf, 512); mm.skill = std::string(wbuf, wbuf + wcslen(wbuf));
-                            mm.active = (SendMessageW(chkActive, BM_GETCHECK, 0, 0) == BST_CHECKED);
-                            if (mm.name.empty() || mm.skill.empty()) {
-                                MessageBoxW(addDlg, L"Please enter name and skill.", L"Validation", MB_ICONWARNING);
-                            } else {
-                                auto idNew = state->db.addMechanic(mm);
-                                if (!idNew) MessageBoxW(addDlg, W(state->db.getLastError()).c_str(), L"DB Error", MB_ICONERROR);
-                                else addDone = true;
+                MSG addMsg;
+                while (!addDone && GetMessageW(&addMsg, nullptr, 0, 0)) {
+                    if (addMsg.hwnd == addDlg || IsChild(addLg, addMsg.hwnd)) {
+                        if (IsDialogMessageW(addDlg, &addMsg)) continue;
+                        if (addMsg.message == WM_COMMAND) {
+                            int id2 = LOWORD(addMsg.wParam);
+                            if (id2 == IDC_MECH_OK) {
+                                wchar_t wbuf[512]; vsrm::Mechanic mm{};
+                                GetWindowTextW(eName, wbuf, 512); mm.name = std::string(wbuf, wbuf + wcslen(wbuf));
+                                GetWindowTextW(eSkill, wbuf, 512); mm.skill = std::string(wbuf, wbuf + wcslen(wbuf));
+                                mm.active = (SendMessageW(chkActive, BM_GETCHECK, 0, 0) == BST_CHECKED);
+                                if (mm.name.empty() || mm.skill.empty()) {
+                                    MessageBoxW(addDlg, L"Please enter name and skill.", L"Validation", MB_ICONWARNING);
+                                } else {
+                                    auto idNew = state->db.addMechanic(mm);
+                                    if (!idNew) MessageBoxW(addDlg, W(state->db.getLastError()).c_str(), L"DB Error", MB_ICONERROR);
+                                    else addDone = true;
+                                }
+                            } else if (id2 == IDC_MECH_CANCEL2) {
+                                addDone = true;
                             }
-                        } else if (id2 == IDC_MECH_CANCEL2) {
-                            addDone = true;
                         }
                     }
-                    TranslateMessage(&m); DispatchMessageW(&m);
+                    TranslateMessage(&addMsg); DispatchMessageW(&addMsg);
                 }
                 DestroyWindow(addDlg);
                 RefreshMechanicList(hList, state);
@@ -573,11 +615,12 @@ static void AppendText(HWND edit, const std::wstring& text) {
 	SendMessageW(edit, EM_REPLACESEL, FALSE, (LPARAM)text.c_str());
 }
 
+static HWND hEdit{nullptr};
+static HWND hToolbar{nullptr};
+static HWND hStatus{nullptr};
+
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     AppState* state = reinterpret_cast<AppState*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-	static HWND hEdit{};
-	static HWND hToolbar{};
-	static HWND hStatus{};
 	switch (msg) {
     case WM_CREATE: {
         // Set up per-window state pointer from lpCreateParams first
@@ -606,17 +649,34 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 
 		hStatus = CreateWindowExW(0, STATUSCLASSNAMEW, nullptr, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hwnd, (HMENU)3002, GetModuleHandleW(nullptr), nullptr);
 
-        LOGFONTW lf{}; SystemParametersInfoW(SPI_GETICONTITLELOGFONT, sizeof(lf), &lf, 0);
-        lstrcpyW(lf.lfFaceName, L"Segoe UI"); lf.lfHeight = -16;
+        // Initialize modern fonts
+        LOGFONTW lf{};
+        SystemParametersInfoW(SPI_GETICONTITLELOGFONT, sizeof(lf), &lf, 0);
+        
+        // Regular font (Segoe UI)
+        lstrcpyW(lf.lfFaceName, L"Segoe UI");
+        lf.lfHeight = -16;
+        lf.lfQuality = CLEARTYPE_QUALITY;
+        state->hFont = CreateFontIndirectW(&lf);
+
+        // Bold font
+        lf.lfWeight = FW_BOLD;
+        state->hFontBold = CreateFontIndirectW(&lf);
+
+        // Light font
+        lf.lfWeight = FW_LIGHT;
+        state->hFontLight = CreateFontIndirectW(&lf);
+
+        // Modern UI brushes and pens
         if (state) {
-            state->hFont = CreateFontIndirectW(&lf);
-            state->hBg = CreateSolidBrush(RGB(248, 250, 252));
-            state->hHeaderBg = CreateSolidBrush(RGB(226, 232, 240));
-            state->hButtonBg = CreateSolidBrush(RGB(217, 239, 255));
-            // Themed button brushes
-            state->hBtnPrimary = CreateSolidBrush(RGB(59, 130, 246));  // blue
-            state->hBtnDanger  = CreateSolidBrush(RGB(239, 68, 68));   // red
-            state->hBtnSuccess = CreateSolidBrush(RGB(34, 197, 94));   // green
+            state->hBg = CreateSolidBrush(UIColors::Background);
+            state->hHeaderBg = CreateSolidBrush(UIColors::HeaderBg);
+            state->hButtonBg = CreateSolidBrush(UIColors::Background);
+            state->hBtnPrimary = CreateSolidBrush(UIColors::Primary);
+            state->hBtnDanger = CreateSolidBrush(UIColors::Danger);
+            state->hBtnSuccess = CreateSolidBrush(UIColors::Success);
+            state->hBorderPen = CreatePen(PS_SOLID, 1, UIColors::Border);
+            state->hHoverBg = CreateSolidBrush(RGB(243, 244, 246));
         }
 
         hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
@@ -844,10 +904,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 			return 0;
 		}
         if (LOWORD(wParam) == 2001) { // Add record
-            OpenRecordEditor(hwnd, state, "");
+            ShowAddRecordDialog(hwnd, state);
             SendMessageW(hwnd, WM_COMMAND, 2501, 0); // Refresh
-			return 0;
-		}
+            return 0;
+        }
 		if (LOWORD(wParam) == 2002) { // Query by VIN
 			auto rows = state->db.listServiceRecordsByVin("JT123TESTVIN00001");
 			AppendText(hEdit, L"Records for VIN JT123TESTVIN00001:\r\n");
@@ -1042,8 +1102,20 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
 	}
 
     // Create main window maximized
-    HWND hwnd = CreateWindowExW(0, kClassName, L"Toyota Zambia - Vehicle Service Records Manager", WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, 900, 600, nullptr, nullptr, hInstance, &state);
+    // Enable DPI awareness
+    SetProcessDPIAware();
+
+    // Create main window with modern style
+    HWND hwnd = CreateWindowExW(
+        WS_EX_LAYERED | WS_EX_APPWINDOW,
+        kClassName,
+        L"Toyota Zambia - Vehicle Service Records Manager",
+        WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT, 1280, 800,
+        nullptr, nullptr, hInstance, &state);
+
+    // Set window transparency for modern look
+    SetLayeredWindowAttributes(hwnd, 0, 252, LWA_ALPHA);
 
 	if (!hwnd) {
 		MessageBoxW(nullptr, L"Failed to create window", L"Error", MB_ICONERROR);
